@@ -22,39 +22,21 @@ import datetime
 
 app = FastAPI()
 
-# Update CORS middleware
+# Add CORS middleware configuration
 app.add_middleware(
     CORSMiddleware,
     allow_origins=[
         "https://ricco.ai", 
         "https://www.ricco.ai",
-        "http://localhost:5173",  # Add localhost
-        "https://riccoai-1.onrender.com"  # Updated Render domain
+        "http://localhost:5173",
+        "https://riccoai-1.onrender.com"
     ],
     allow_credentials=True,
     allow_methods=["*"],
     allow_headers=["*"]
 )
 
-# Create chatbot instance but don't initialize everything immediately
-chatbot = ChatBot()
-
-# Move document loading to a background task
-@app.on_event("startup")
-async def startup_event():
-    try:
-        # Load documents in background
-        import asyncio
-        asyncio.create_task(load_documents_background())
-    except Exception as e:
-        print(f"Startup error: {str(e)}")
-
-async def load_documents_background():
-    try:
-        chatbot.load_documents("docs")
-    except Exception as e:
-        print(f"Document loading error: {str(e)}")
-
+# Define ChatBot class first
 class ChatBot:
     def __init__(self):
         # Initialize basic configurations
@@ -276,9 +258,24 @@ class ChatBot:
             print(f"Error processing message: {str(e)}")
             return "I apologize, but I'm having trouble processing your message. Please try again."
 
+# Then create the instance
 chatbot = ChatBot()
 
-chatbot.load_documents("docs")
+# Move document loading to a background task
+@app.on_event("startup")
+async def startup_event():
+    try:
+        # Load documents in background
+        import asyncio
+        asyncio.create_task(load_documents_background())
+    except Exception as e:
+        print(f"Startup error: {str(e)}")
+
+async def load_documents_background():
+    try:
+        chatbot.load_documents("docs")
+    except Exception as e:
+        print(f"Document loading error: {str(e)}")
 
 @app.websocket("/ws/{session_id}")
 async def websocket_endpoint(websocket: WebSocket, session_id: str):
