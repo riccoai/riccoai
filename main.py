@@ -29,12 +29,31 @@ app.add_middleware(
         "https://ricco.ai", 
         "https://www.ricco.ai",
         "http://localhost:5173",  # Add localhost
-        "https://riccoai.onrender.com"  # Add Render domain
+        "https://riccoai-1.onrender.com"  # Updated Render domain
     ],
     allow_credentials=True,
     allow_methods=["*"],
     allow_headers=["*"]
 )
+
+# Create chatbot instance but don't initialize everything immediately
+chatbot = ChatBot()
+
+# Move document loading to a background task
+@app.on_event("startup")
+async def startup_event():
+    try:
+        # Load documents in background
+        import asyncio
+        asyncio.create_task(load_documents_background())
+    except Exception as e:
+        print(f"Startup error: {str(e)}")
+
+async def load_documents_background():
+    try:
+        chatbot.load_documents("docs")
+    except Exception as e:
+        print(f"Document loading error: {str(e)}")
 
 class ChatBot:
     def __init__(self):
@@ -282,3 +301,7 @@ async def websocket_endpoint(websocket: WebSocket, session_id: str):
 @app.get("/")
 async def root():
     return {"message": "Welcome to ricco.AI API"}
+
+@app.get("/health")
+async def health_check():
+    return {"status": "healthy"}
