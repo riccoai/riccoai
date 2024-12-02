@@ -19,6 +19,13 @@ const ChatWidget: React.FC<ChatWidgetProps> = ({ isOpen, setIsOpen }) => {
     const [sessionId, setSessionId] = useState<string>('');
     const messagesEndRef = useRef<HTMLDivElement>(null);
 
+    // Add reconnection attempt tracking
+    const [reconnectAttempts, setReconnectAttempts] = useState(0);
+    const maxReconnectAttempts = 3;
+
+    // Add connection status tracking
+    const [isConnecting, setIsConnecting] = useState(false);
+
     useEffect(() => {
         // Generate a random session ID
         setSessionId(Math.random().toString(36).substring(7));
@@ -32,53 +39,73 @@ const ChatWidget: React.FC<ChatWidgetProps> = ({ isOpen, setIsOpen }) => {
         }]);
     }, []); 
 
+    const connectWebSocket = () => {
+        if (isConnecting || reconnectAttempts >= maxReconnectAttempts) return;
+
+        setIsConnecting(true);
+        const websocket = new WebSocket(
+            import.meta.env.DEV 
+                ? `ws://localhost:8000/ws/${sessionId}`
+                : `wss://riccoai-1.onrender.com/ws/${sessionId}`
+        );
+        
+        websocket.onopen = () => {
+            console.log('Connected to chat server');
+            setIsConnecting(false);
+            setReconnectAttempts(0);
+            setMessages(prev => prev.filter(m => m.type === 'bot' && m.content.includes('Welcome')));
+        };
+
+        websocket.onmessage = (event) => {
+            if (event.data === "ping") return; // Ignore ping messages
+            setMessages(prev => [...prev, { type: 'bot', content: event.data }]);
+        };
+
+        websocket.onclose = () => {
+            console.log('Disconnected from chat server');
+            setWs(null);
+            setIsConnecting(false);
+
+            if (isOpen && reconnectAttempts < maxReconnectAttempts) {
+                setReconnectAttempts(prev => prev + 1);
+                setMessages(prev => [...prev, { 
+                    type: 'bot', 
+                    content: "Connection lost. Attempting to reconnect..." 
+                }]);
+                // Try to reconnect after 3 seconds
+                setTimeout(() => connectWebSocket(), 3000);
+            } else if (reconnectAttempts >= maxReconnectAttempts) {
+                setMessages(prev => [...prev, { 
+                    type: 'bot', 
+                    content: "Unable to establish connection. Please refresh the page to try again." 
+                }]);
+            }
+        };
+
+        websocket.onerror = (error) => {
+            console.error('WebSocket error:', error);
+            if (!messages.some(m => m.content.includes('error connecting'))) {
+                setMessages(prev => [...prev.filter(m => m.content.includes('Welcome')), { 
+                    type: 'bot', 
+                    content: "Connection issue detected. Attempting to reconnect..." 
+                }]);
+            }
+        };
+
+        setWs(websocket);
+    };
+
     useEffect(() => {
-        if (sessionId && isOpen && !ws) {
-            const websocket = new WebSocket(
-                import.meta.env.DEV 
-                    ? `ws://localhost:8000/ws/${sessionId}`
-                    : `wss://riccoai.onrender.com/ws/${sessionId}`
-            );
-            
-            websocket.onopen = () => {
-                console.log('Connected to chat server');
-                setMessages(prev => prev.filter(m => m.type === 'bot' && m.content.includes('Welcome')));
-            };
-    
-            websocket.onmessage = (event) => {
-                setMessages(prev => [...prev, { type: 'bot', content: event.data }]);
-            };
-    
-            websocket.onclose = () => {
-                console.log('Disconnected from chat server');
-                setWs(null);
-                if (isOpen && !messages.some(m => m.content.includes('Connection lost'))) {
-                    setMessages(prev => [...prev.filter(m => !m.content.includes('error')), { 
-                        type: 'bot', 
-                        content: "Connection lost. Please refresh the page to reconnect." 
-                    }]);
-                }
-            };
-    
-            websocket.onerror = (error) => {
-                console.error('WebSocket error:', error);
-                if (!messages.some(m => m.content.includes('error connecting'))) {
-                    setMessages(prev => [...prev.filter(m => m.content.includes('Welcome')), { 
-                        type: 'bot', 
-                        content: "Sorry, there was an error connecting to the chat server. Please try again later." 
-                    }]);
-                }
-            };
-    
-            setWs(websocket);
+        if (sessionId && isOpen && !ws && !isConnecting) {
+            connectWebSocket();
         }
-    
+
         return () => {
             if (ws) {
                 ws.close();
             }
         };
-    }, [sessionId, isOpen]);
+    }, [sessionId, isOpen, ws, isConnecting]);
 
     const scrollToBottom = () => {
         messagesEndRef.current?.scrollIntoView({ behavior: "smooth" });
