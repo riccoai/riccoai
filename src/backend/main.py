@@ -3,33 +3,42 @@ from fastapi import FastAPI, WebSocket, WebSocketDisconnect
 import httpx
 from dotenv import load_dotenv
 from fastapi.middleware.cors import CORSMiddleware
-
-# Load environment variables from .env file
-load_dotenv()
-
-# Update these imports
-from langchain_community.chat_message_histories import UpstashRedisChatMessageHistory
-from langchain_community.document_loaders import TextLoader, Docx2txtLoader
-from langchain.text_splitter import RecursiveCharacterTextSplitter
-from langchain_huggingface import HuggingFaceEmbeddings
-from langchain_pinecone import PineconeVectorStore 
-from pinecone import Pinecone
-from openai import OpenAI
+import traceback
 import os
 import json
 from typing import List, Dict
 import datetime
 
+# Langchain imports
+from langchain.schema import HumanMessage, AIMessage
+from langchain_community.chat_message_histories import UpstashRedisChatMessageHistory
+from langchain_community.document_loaders import TextLoader, Docx2txtLoader
+from langchain.text_splitter import RecursiveCharacterTextSplitter
+from langchain_community.embeddings import HuggingFaceEmbeddings
+from langchain_pinecone import PineconeVectorStore
+from pinecone import Pinecone
+from openai import OpenAI
+
+# Move these to the top of the file, before creating the ChatBot instance
+current_dir = os.path.dirname(os.path.abspath(__file__))
+env_path = os.path.join(current_dir, '.env')
+load_dotenv(dotenv_path=env_path)
+
+# Debug logging
+print("Environment variables loaded:")
+print("PINECONE_API_KEY exists:", bool(os.getenv("PINECONE_API_KEY")))
+print("First few chars of PINECONE_API_KEY:", os.getenv("PINECONE_API_KEY")[:8] if os.getenv("PINECONE_API_KEY") else "None")
+
+# First create the FastAPI app
 app = FastAPI()
 
-# Add CORS middleware configuration
+# Add CORS middleware
 app.add_middleware(
     CORSMiddleware,
     allow_origins=[
-        "https://ricco.ai", 
-        "https://www.ricco.ai",
         "http://localhost:5173",
-        "https://riccoai-1.onrender.com"
+        "http://127.0.0.1:5173",
+        "https://riccoai-1.onrender.com",
     ],
     allow_credentials=True,
     allow_methods=["*"],
@@ -120,7 +129,7 @@ class ChatBot:
         context = "\n".join([doc.page_content for doc in docs])
         
         prompt = f"""You are Ai, a friendly AI assistant for ricco.AI, an AI consultancy company. 
-    
+
     Context: {context}
     Question: {query}
 
@@ -131,7 +140,8 @@ class ChatBot:
     - Suggest a consultation when user shows interest
     - Use phrases like "I'd be happy to arrange a consultation to discuss this in detail" or "Our experts can guide you through this in a consultation"
     - Keep responses brief but persuasive 
-    - Maximum 2-3 sentences
+    - Maximum 3 sentences, but try to keep it 1 or 2 sentences
+    - Maximum 225 characters
     - Be direct and get to the point quickly
     - If they mention any business challenges or AI interests, emphasize how a consultation could help them
     - Be natural and conversational, not pushy
@@ -145,7 +155,6 @@ class ChatBot:
         return await self.get_llm_response(prompt, session_id)
 
     async def handle_scheduling(self, user_info: dict = None) -> str:
-       
         # Send scheduling request to Make.com webhook
         async with httpx.AsyncClient() as client:
             try:
@@ -164,7 +173,13 @@ class ChatBot:
             
                 if response.status_code == 200:
                     booking_url = "https://calendly.com/d/cqvb-cvn-6gc/15-minute-meeting"
-                    return f"Here's your scheduling link! 🗓️ <a href='{booking_url}' target='_blank' style='color: #0066cc; text-decoration: underline; font-weight: bold;'>Click here to book your consultation</a>"
+                    # Return a JSON string that the frontend can parse
+                    return json.dumps({
+                        "type": "scheduling",
+                        "message": "Please click here to book your consultation with us!",
+                        "url": booking_url,
+                        "linkText": "Click here to book your consultation"
+                    })
                 else:
                     print(f"Webhook error: Status {response.status_code}, Response: {response.text}")
                     return "I'm having trouble connecting to the scheduling system. Please try again later."
@@ -261,7 +276,7 @@ class ChatBot:
 # Then create the instance
 chatbot = ChatBot()
 
-# Move document loading to a background task
+# Now define the FastAPI routes and event handlers
 @app.on_event("startup")
 async def startup_event():
     try:
@@ -279,21 +294,40 @@ async def load_documents_background():
 
 @app.websocket("/ws/{session_id}")
 async def websocket_endpoint(websocket: WebSocket, session_id: str):
+    print(f"New WebSocket connection attempt from session: {session_id}")
     try:
         await websocket.accept()
+        print(f"WebSocket connection accepted for session: {session_id}")
         
         while True:
-            message = await websocket.receive_text()
-            response = await chatbot.process_message(message, session_id)
-            await websocket.send_text(response)
-    except WebSocketDisconnect:
-        print(f"WebSocket disconnected for session {session_id}")
+            try:
+                # Log when waiting for a message
+                print(f"[{session_id}] Waiting for message...")
+                message = await websocket.receive_text()
+                print(f"[{session_id}] Received message: {message}")
+                
+                # Process the message
+                response = await chatbot.process_message(message, session_id)
+                print(f"[{session_id}] Sending response: {response}")
+                
+                # Send response back
+                await websocket.send_text(response)
+                print(f"[{session_id}] Response sent successfully")
+                
+            except WebSocketDisconnect:
+                print(f"[{session_id}] WebSocket disconnected")
+                break
+            except Exception as e:
+                print(f"[{session_id}] Error: {str(e)}")
+                traceback.print_exc()
+                try:
+                    await websocket.send_text("Sorry, there was an error processing your message.")
+                except:
+                    print(f"[{session_id}] Could not send error message to client")
+                break
     except Exception as e:
-        print(f"WebSocket error: {str(e)}")
-        try:
-            await websocket.close()
-        except:
-            pass
+        print(f"Error accepting WebSocket connection: {str(e)}")
+        traceback.print_exc()
 
 @app.get("/")
 async def root():
@@ -302,3 +336,31 @@ async def root():
 @app.get("/health")
 async def health_check():
     return {"status": "healthy"}
+
+# Get the directory containing the current file
+current_dir = os.path.dirname(os.path.abspath(__file__))
+env_path = os.path.join(current_dir, '.env')
+
+print(f"Looking for .env file at: {env_path}")
+print(f"File exists: {os.path.exists(env_path)}")
+
+# Try to read the file directly (don't log the full contents as it contains sensitive info)
+try:
+    with open(env_path, 'r') as f:
+        first_line = f.readline().strip()
+        print(f"First line starts with: {first_line[:15]}...")
+except Exception as e:
+    print(f"Error reading .env file: {str(e)}")
+
+# Load the environment variables
+load_dotenv(dotenv_path=env_path)
+
+# Debug: Print environment variables (don't print full keys in production!)
+print("Environment variables loaded:")
+print("PINECONE_API_KEY exists:", bool(os.getenv("PINECONE_API_KEY")))
+print("OPENAI_API_KEY exists:", bool(os.getenv("OPENAI_API_KEY")))
+print("First few chars of PINECONE_API_KEY:", os.getenv("PINECONE_API_KEY")[:8] if os.getenv("PINECONE_API_KEY") else "None")
+
+# Make sure the path to .env is correct
+print("Current working directory:", os.getcwd())
+print("Looking for .env file in:", os.path.abspath(".env"))

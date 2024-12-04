@@ -5,6 +5,9 @@ import './ChatWidget.css';
 interface Message {
     type: 'user' | 'bot';
     content: string;
+    isScheduling?: boolean;
+    url?: string;
+    linkText?: string;
 }
 
 interface ChatWidgetProps {
@@ -12,100 +15,117 @@ interface ChatWidgetProps {
     setIsOpen: (isOpen: boolean) => void;
 }
 
+const WS_URL = import.meta.env.PROD 
+    ? `wss://riccoai-1.onrender.com/ws`  // Production
+    : `ws://localhost:8000/ws`;          // Development
+
+interface ThinkingDotsProps {
+    className?: string;
+}
+
+const ThinkingDots: React.FC<ThinkingDotsProps> = ({ className }) => {
+    return (
+        <span className={`thinking-dots ${className || ''}`}>
+            <span>.</span>
+            <span>.</span>
+            <span>.</span>
+        </span>
+    );
+};
+
 const ChatWidget: React.FC<ChatWidgetProps> = ({ isOpen, setIsOpen }) => {
     const [messages, setMessages] = useState<Message[]>([]);
     const [input, setInput] = useState<string>('');
     const [ws, setWs] = useState<WebSocket | null>(null);
     const [sessionId, setSessionId] = useState<string>('');
+    const [isConnecting, setIsConnecting] = useState(false);
     const messagesEndRef = useRef<HTMLDivElement>(null);
 
-    // Add reconnection attempt tracking
-    const [reconnectAttempts, setReconnectAttempts] = useState(0);
-    const maxReconnectAttempts = 3;
-
-    // Add connection status tracking
-    const [isConnecting, setIsConnecting] = useState(false);
-
     useEffect(() => {
-        // Generate a random session ID
         setSessionId(Math.random().toString(36).substring(7));
     }, []);
 
-    useEffect(() => {
-        // Add this initial greeting message
-        setMessages([{ 
-            type: 'bot', 
-            content: "👋 Welcome to ricco.AI! I'm Ai. How can I help you today?" 
-        }]);
-    }, []); 
-
     const connectWebSocket = () => {
-        if (isConnecting || reconnectAttempts >= maxReconnectAttempts) return;
+        if (isConnecting || ws) return;
 
         setIsConnecting(true);
-        const websocket = new WebSocket(
-            import.meta.env.DEV 
-                ? `ws://localhost:8000/ws/${sessionId}`
-                : `wss://riccoai-1.onrender.com/ws/${sessionId}`
-        );
-        
-        websocket.onopen = () => {
-            console.log('Connected to chat server');
+        const wsUrl = `${WS_URL}/${sessionId}`;
+        console.log("Connecting to WebSocket at:", wsUrl);
+
+        try {
+            const websocket = new WebSocket(wsUrl);
+            
+            websocket.onopen = () => {
+                console.log("WebSocket connection established");
+                setIsConnecting(false);
+                setWs(websocket);
+                setMessages([{ 
+                    type: 'bot',
+                    content: "Welcome to ricco.AI! I'm Ai. How can I help you today?" 
+                }]);
+            };
+
+            websocket.onmessage = (event) => {
+                console.log("Received message from server:", event.data);
+                setMessages(prev => prev.filter(msg => msg.content !== "thinking"));
+                
+                try {
+                    const jsonResponse = JSON.parse(event.data);
+                    if (jsonResponse.type === "scheduling") {
+                        setMessages(prev => [...prev, { 
+                            type: 'bot', 
+                            content: jsonResponse.message,
+                            isScheduling: true,
+                            url: jsonResponse.url,
+                            linkText: jsonResponse.linkText
+                        }]);
+                    } else {
+                        let content = event.data;
+                        if (content.startsWith("Response:")) {
+                            content = content.substring(9).trim();
+                        }
+                        setMessages(prev => [...prev, { type: 'bot', content }]);
+                    }
+                } catch {
+                    let content = event.data;
+                    if (content.startsWith("Response:")) {
+                        content = content.substring(9).trim();
+                    }
+                    setMessages(prev => [...prev, { type: 'bot', content }]);
+                }
+            };
+
+            websocket.onerror = (error) => {
+                console.error("WebSocket error:", error);
+                setIsConnecting(false);
+            };
+
+            websocket.onclose = () => {
+                console.log("WebSocket connection closed");
+                if (ws === websocket) {
+                    setWs(null);
+                    setIsConnecting(false);
+                }
+            };
+        } catch (error) {
+            console.error("Error creating WebSocket:", error);
             setIsConnecting(false);
-            setReconnectAttempts(0);
-            setMessages(prev => prev.filter(m => m.type === 'bot' && m.content.includes('Welcome')));
-        };
-
-        websocket.onmessage = (event) => {
-            if (event.data === "ping") return; // Ignore ping messages
-            setMessages(prev => [...prev, { type: 'bot', content: event.data }]);
-        };
-
-        websocket.onclose = () => {
-            console.log('Disconnected from chat server');
-            setWs(null);
-            setIsConnecting(false);
-
-            if (isOpen && reconnectAttempts < maxReconnectAttempts) {
-                setReconnectAttempts(prev => prev + 1);
-                setMessages(prev => [...prev, { 
-                    type: 'bot', 
-                    content: "Connection lost. Attempting to reconnect..." 
-                }]);
-                // Try to reconnect after 3 seconds
-                setTimeout(() => connectWebSocket(), 3000);
-            } else if (reconnectAttempts >= maxReconnectAttempts) {
-                setMessages(prev => [...prev, { 
-                    type: 'bot', 
-                    content: "Unable to establish connection. Please refresh the page to try again." 
-                }]);
-            }
-        };
-
-        websocket.onerror = (error) => {
-            console.error('WebSocket error:', error);
-            if (!messages.some(m => m.content.includes('error connecting'))) {
-                setMessages(prev => [...prev.filter(m => m.content.includes('Welcome')), { 
-                    type: 'bot', 
-                    content: "Connection issue detected. Attempting to reconnect..." 
-                }]);
-            }
-        };
-
-        setWs(websocket);
+        }
     };
 
+    // Only try to connect once when the chat is opened
     useEffect(() => {
         if (sessionId && isOpen && !ws && !isConnecting) {
             connectWebSocket();
         }
-
+        
         return () => {
             if (ws) {
                 ws.close();
+                setWs(null);
             }
         };
-    }, [sessionId, isOpen, ws, isConnecting]);
+    }, [isOpen, sessionId, ws, isConnecting]);
 
     const scrollToBottom = () => {
         messagesEndRef.current?.scrollIntoView({ behavior: "smooth" });
@@ -116,9 +136,15 @@ const ChatWidget: React.FC<ChatWidgetProps> = ({ isOpen, setIsOpen }) => {
     const sendMessage = () => {
         if (input.trim() && ws) {
             try {
+                console.log('Attempting to send message:', input);
                 ws.send(input);
                 setMessages(prev => [...prev, { type: 'user', content: input }]);
                 setInput('');
+                
+                setMessages(prev => [...prev, { 
+                    type: 'bot', 
+                    content: "thinking" 
+                }]);
             } catch (error) {
                 console.error('Error sending message:', error);
                 setMessages(prev => [...prev, { 
@@ -150,8 +176,24 @@ const ChatWidget: React.FC<ChatWidgetProps> = ({ isOpen, setIsOpen }) => {
                     </div>
                     <div className="chat-messages">
                         {messages.map((msg, idx) => (
-                            <div key={idx} className={`message ${msg.type}`}
-                                dangerouslySetInnerHTML={{ __html: msg.content }}>
+                            <div key={idx} className={`message ${msg.type}`}>
+                                {msg.content === "thinking" ? (
+                                    <ThinkingDots />
+                                ) : msg.isScheduling ? (
+                                    <>
+                                        {msg.content}{' '}
+                                        <a 
+                                            href={msg.url} 
+                                            target="_blank" 
+                                            rel="noopener noreferrer"
+                                            style={{ color: '#0066cc', textDecoration: 'underline', fontWeight: 'bold' }}
+                                        >
+                                            {msg.linkText}
+                                        </a>
+                                    </>
+                                ) : (
+                                    msg.content
+                                )}
                             </div>
                         ))}
                         <div ref={messagesEndRef} />
