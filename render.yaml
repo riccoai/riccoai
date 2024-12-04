@@ -2,18 +2,7 @@ services:
   - type: web
     name: riccoai-1
     env: python
-    buildCommand: |
-      echo "Current location:"
-      pwd
-      echo "Directory contents:"
-      ls -la
-      echo "Backend directory contents:"
-      ls -la src/backend/
-      echo "Installing requirements..."
-      python -m pip install -r src/backend/requirements.txt
-      echo "PYTHONPATH setup:"
-      export PYTHONPATH="${PYTHONPATH}:$(pwd)"
-      echo $PYTHONPATH
+    buildCommand: pip install -r requirements.txt
     startCommand: cd src/backend && PYTHONPATH=$PYTHONPATH:.. uvicorn main:app --host 0.0.0.0 --port $PORT
     envVars:
       - key: PYTHON_VERSION
