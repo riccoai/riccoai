@@ -15,3 +15,12 @@ dist/
 
 # OS
 .DS_Store
+
+# Virtual Environment
+.venv/
+venv/
+ENV/
+
+# DLL and LIB files
+*.dll
+*.lib
