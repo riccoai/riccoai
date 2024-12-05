@@ -12,25 +12,25 @@ interface Testimonial {
 
 const testimonials: Testimonial[] = [
   {
-    text: "Ricco.AI transformed our business operations. Their AI integration solutions helped us achieve 40% more efficiency in our customer service.",
-    author: "Sarah Chen",
+    text: "Ricco.AI transformed our business operations. Their AI integration solutions helped us achieve more efficiency in our customer service.",
+    author: "Allan Jarata",
     position: "CEO",
-    company: "TechFlow Solutions",
-    logo: "https://images.unsplash.com/photo-1560179707-f14e90ef3623?auto=format&fit=crop&q=80&w=100&h=100"
+    company: "VanCrew",
+    logo: "https://raw.githubusercontent.com/riccoai/riccoai/refs/heads/main/images/vancrew1.jpg"
   },
   {
     text: "The AI team building service has been a game-changer. We've automated complex processes and seen remarkable improvements in our productivity.",
-    author: "Michael Rodriguez",
+    author: "Victor Lei",
     position: "Operations Director",
-    company: "InnovateNow Inc",
-    logo: "https://images.unsplash.com/photo-1599305445671-ac291c95aaa9?auto=format&fit=crop&q=80&w=100&h=100"
+    company: "LearnChat.io",
+    logo: "https://raw.githubusercontent.com/riccoai/riccoai/refs/heads/main/images/learnchatlogo1.jpg"
   },
   {
-    text: "Their business analytics solutions provided insights that helped us make data-driven decisions and grow our revenue by 25% in just six months.",
-    author: "Emily Watson",
+    text: "Their business analytics solutions provided insights that helped us make crucial data-driven decisions.",
+    author: "Sarah Ennas",
     position: "Marketing Manager",
-    company: "Growth Dynamics",
-    logo: "https://images.unsplash.com/photo-1572021335469-31706a17aaef?auto=format&fit=crop&q=80&w=100&h=100"
+    company: "Intergalactic Agency Inc.",
+    logo: "https://images.unsplash.com/photo-1560179707-f14e90ef3623?auto=format&fit=crop&q=80&w=100&h=100"
   }
 ];
 

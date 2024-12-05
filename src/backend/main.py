@@ -8,6 +8,7 @@ import os
 import json
 from typing import List, Dict
 import datetime
+from tiktoken import encoding_for_model
 
 # Langchain imports
 from langchain.schema import HumanMessage, AIMessage
@@ -79,28 +80,46 @@ class ChatBot:
                 namespace=""
             )
         
-        # Updated chat configuration to use gpt-3.5-turbo
+        # Updated chat configuration to use gpt-3.5-turbo-16k
         self.chat_config = {
-            "model": "gpt-3.5-turbo",  # Changed from gpt-4
+            "model": "gpt-3.5-turbo-16k",  # Changed to 16k version
             "temperature": 0.7,
             "top_p": 0.7,
-            "max_tokens": 150,  # Can be higher now due to higher limits
+            "max_tokens": 1000,  # Can be higher with 16k model
             "stream": True
         }
 
     async def get_llm_response(self, prompt: str, session_id: str) -> str:
-        # Get conversation history
-        conversation = self.conversations.get(session_id, [])
-        
-        # Add current prompt to messages
-        messages = [
-            *[{"role": msg["role"], "content": msg["content"]} for msg in conversation],
-            {"role": "user", "content": prompt}
-        ]
-        
         try:
+            # Initialize memory client if not exists
+            if not hasattr(self, 'memory_client') or self.memory_client is None:
+                self.memory_client = UpstashRedisChatMessageHistory(
+                    url=os.getenv("UPSTASH_REDIS_URL"),
+                    token=os.getenv("UPSTASH_REDIS_TOKEN"),
+                    session_id=session_id,
+                    ttl=86400
+                )
+            
+            # Get history from Upstash
+            history = self.memory_client.messages
+            
+            # Initialize messages with system prompt
+            messages = [{"role": "system", "content": "You are Ai, a friendly AI assistant for ricco.AI, an AI consultancy company."}]
+            
+            # Add only the last 5 relevant messages for context
+            relevant_history = history[-5:]  # Get last 5 messages
+            for msg in relevant_history:
+                messages.append({
+                    "role": "user" if isinstance(msg, HumanMessage) else "assistant",
+                    "content": msg.content
+                })
+            
+            # Add current prompt
+            messages.append({"role": "user", "content": prompt})
+            
+            # Get response from OpenAI
             completion = self.client.chat.completions.create(
-                model="gpt-3.5-turbo",  # Changed from gpt-4
+                model="gpt-3.5-turbo-16k",
                 messages=messages,
                 temperature=self.chat_config["temperature"],
                 top_p=self.chat_config["top_p"],
@@ -113,46 +132,25 @@ class ChatBot:
                 if chunk.choices[0].delta.content:
                     response += chunk.choices[0].delta.content
             
-            # Update conversation history
-            conversation.extend([
-                {"role": "user", "content": prompt},
-                {"role": "assistant", "content": response}
-            ])
-            self.conversations[session_id] = conversation[-10:]  # Keep last 10 messages
+            # Save full history to Upstash
+            self.memory_client.add_user_message(prompt)
+            self.memory_client.add_ai_message(response)
             
             return response
+            
         except Exception as e:
+            print(f"Error in get_llm_response: {str(e)}")
             return f"Error getting LLM response: {str(e)}"
 
-    async def search_documents(self, query: str, session_id: str) -> str:
-        docs = self.vectorstore.similarity_search(query)
-        context = "\n".join([doc.page_content for doc in docs])
-        
-        prompt = f"""You are Ai, a friendly AI assistant for ricco.AI, an AI consultancy company. 
-
-    Context: {context}
-    Question: {query}
-
-    Instructions: 
-    - Be engaging and show genuine interest in the visitor's needs
-    - After 1-2 exchanges, suggest a consultation if the user shows interest in AI services
-    - Highlight ricco.AI's expertise in AI consulting and implementation
-    - Suggest a consultation when user shows interest
-    - Use phrases like "I'd be happy to arrange a consultation to discuss this in detail" or "Our experts can guide you through this in a consultation"
-    - Keep responses brief but persuasive 
-    - Maximum 3 sentences, but try to keep it 1 or 2 sentences
-    - Maximum 225 characters
-    - Be direct and get to the point quickly
-    - If they mention any business challenges or AI interests, emphasize how a consultation could help them
-    - Be natural and conversational, not pushy
-
-    Example responses:
-    - "That's a great question! Let's discuss your specific needs with one of our experts? I can help schedule a consultation."
-    - "I see. I think you'd benefit from a quick chat with our AI consultants. They can provide detailed insights about [specific aspect]."
-
-    Current conversation context: {self.conversations.get(session_id, [])}"""
-        
-        return await self.get_llm_response(prompt, session_id)
+    def get_booking_link_response(self):
+        """Centralized method to return booking link JSON"""
+        booking_url = "https://calendly.com/d/cqvb-cvn-6gc/15-minute-meeting"
+        return json.dumps({
+            "type": "scheduling",
+            "message": "Great! Here's the link to schedule your consultation:",
+            "url": booking_url,
+            "linkText": "Book your consultation now"
+        })
 
     async def handle_scheduling(self, user_info: dict = None) -> str:
         # Send scheduling request to Make.com webhook
@@ -172,14 +170,7 @@ class ChatBot:
                 print(f"Make.com response: {response.text}")  # Debug line
             
                 if response.status_code == 200:
-                    booking_url = "https://calendly.com/d/cqvb-cvn-6gc/15-minute-meeting"
-                    # Return a JSON string that the frontend can parse
-                    return json.dumps({
-                        "type": "scheduling",
-                        "message": "Please click here to book your consultation with us!",
-                        "url": booking_url,
-                        "linkText": "Click here to book your consultation"
-                    })
+                    return self.get_booking_link_response()
                 else:
                     print(f"Webhook error: Status {response.status_code}, Response: {response.text}")
                     return "I'm having trouble connecting to the scheduling system. Please try again later."
@@ -245,14 +236,31 @@ class ChatBot:
 
     async def process_message(self, message: str, session_id: str) -> str:
         try:
+            # Define relevant topics and off-topic responses
+            business_keywords = [
+                "ai", "artificial intelligence", "business", "automation", "company", 
+                "service", "consultation", "efficiency", "productivity", "data", 
+                "process", "solution", "cost", "time", "revenue", "help", "improve",
+                "ricco", "consulting"
+            ]
+            
+            # Check if message is off-topic
+            is_relevant = any(keyword in message.lower() for keyword in business_keywords)
+            if not is_relevant and len(message.split()) > 2:  # Ignore short greetings
+                return "I'm focused on helping businesses with AI solutions. How can I assist you with your business needs?"
+            
             # Save incoming message to history
             await self.save_chat_history(session_id, {
                 "role": "user",
                 "content": message
             })
 
-            # Check if it's a scheduling request
-            if any(word in message.lower() for word in ["schedule", "meeting", "consultation", "book", "appointment"]):
+            # Check if user has already booked first
+            already_booked_keywords = ["booked", "scheduled", "done", "completed"]
+            if any(keyword in message.lower() for keyword in already_booked_keywords):
+                response = "Great to hear you've booked a consultation! Our team will be in touch soon. Is there anything else you'd like to know about our services in the meantime?"
+            # Then check if it's a new scheduling request
+            elif any(word in message.lower() for word in ["schedule", "meeting", "consultation", "book", "appointment"]):
                 response = await self.handle_scheduling()
             else:
                 # Initialize Pinecone if not already done
@@ -272,6 +280,62 @@ class ChatBot:
         except Exception as e:
             print(f"Error processing message: {str(e)}")
             return "I apologize, but I'm having trouble processing your message. Please try again."
+
+    async def search_documents(self, query: str, session_id: str) -> str:
+        # Initialize Upstash first
+        if not self.memory_client:
+            self.memory_client = UpstashRedisChatMessageHistory(
+                url=os.getenv("UPSTASH_REDIS_URL"),
+                token=os.getenv("UPSTASH_REDIS_TOKEN"),
+                session_id=session_id
+            )
+        
+        # Get conversation history
+        recent_messages = self.memory_client.messages[-5:]  # Last 5 messages
+        recent_context = "\n".join([msg.content for msg in recent_messages])
+        
+        # Only check scheduling keywords after company info is provided
+        scheduling_keywords = ["yes", "sure", "okay", "consultation", "book", "schedule", "meet", "appointment"]
+        already_booked_keywords = ["booked", "scheduled", "done", "completed"]
+        
+        # Check if user has already booked
+        if any(keyword in query.lower() for keyword in already_booked_keywords):
+            return "Great to hear you've booked a consultation! Our team will be in touch soon. Is there anything else you'd like to know about our services in the meantime?"
+        
+        # Get relevant documents
+        docs = self.vectorstore.similarity_search(query, k=2)
+        context = "\n".join([doc.page_content for doc in docs])
+        
+        # Different prompts based on conversation stage
+        if len(recent_messages) == 0:
+            prompt = """You are Ai, a friendly AI assistant for ricco.AI. 
+            First message should just be welcoming and ask about their needs.
+            Example: "Hello! How can we assist you with optimizing your business with AI today?"
+            Keep it brief and friendly."""
+        elif "tell me more about your company" in query.lower() or "what do you do" in query.lower():
+            prompt = """Explain ricco.AI's services briefly:
+            "ricco.AI is an AI consultancy helping businesses optimize operations through AI solutions. We focus on revenue growth, efficiency improvements, and process automation. What specific areas interest you most?" """
+        elif any(keyword in query.lower() for keyword in scheduling_keywords) and len(recent_messages) > 2:
+            return self.get_booking_link_response()
+        else:
+            prompt = f"""You are Ai, a friendly AI assistant for ricco.AI.
+            Context: {context}
+            Recent conversation: {recent_context}
+            Question: {query}
+
+        Instructions: 
+        - NEVER end a reply without asking the user a follow-up question, such as if they are interested in a consultation
+        - Don't mention scheduling or consultation until user shows clear interest
+        - Keep responses brief (1-2 sentences)
+        - Don't send the consultation link right away. In the message prior to presenting the link, be polite and say something like "If you'd like, we can book a consultation with one of our experts."
+        - Maximum 150 characters
+        - If they ask about company, explain services first
+        - If they say they've booked, acknowledge and offer more info
+        
+        Example good follow-up responses: "That's interesting! What specific challenges are you looking to address with AI?"
+        """
+        
+        return await self.get_llm_response(prompt, session_id)
 
 # Then create the instance
 chatbot = ChatBot()
