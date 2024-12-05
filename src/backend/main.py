@@ -79,12 +79,12 @@ class ChatBot:
                 namespace=""
             )
         
-        # Chat configuration with smaller context window
+        # Updated chat configuration to use gpt-3.5-turbo
         self.chat_config = {
-            "model": "gpt-4",
+            "model": "gpt-3.5-turbo",  # Changed from gpt-4
             "temperature": 0.7,
             "top_p": 0.7,
-            "max_tokens": 100,  # Reduced from 150
+            "max_tokens": 150,  # Can be higher now due to higher limits
             "stream": True
         }
 
@@ -100,7 +100,7 @@ class ChatBot:
         
         try:
             completion = self.client.chat.completions.create(
-                model=self.chat_config["model"],
+                model="gpt-3.5-turbo",  # Changed from gpt-4
                 messages=messages,
                 temperature=self.chat_config["temperature"],
                 top_p=self.chat_config["top_p"],
