@@ -1,5 +1,5 @@
 import React, { useState, useEffect } from 'react';
-import { motion, AnimatePresence } from 'framer-motion';
+import { motion, AnimatePresence, PanInfo } from 'framer-motion';
 import { ChevronLeft, ChevronRight } from 'lucide-react';
 
 interface Testimonial {
@@ -106,8 +106,8 @@ const TestimonialCarousel: React.FC = () => {
             drag="x"
             dragConstraints={{ left: 0, right: 0 }}
             dragElastic={1}
-            onDragEnd={(e, { offset, velocity }) => {
-              const swipe = swipePower(offset.x, velocity.x);
+            onDragEnd={(_event: MouseEvent | TouchEvent | PointerEvent, info: PanInfo) => {
+              const swipe = swipePower(info.offset.x, info.velocity.x);
               if (swipe < -swipeConfidenceThreshold) {
                 paginate(1);
               } else if (swipe > swipeConfidenceThreshold) {
