@@ -52,6 +52,12 @@ interface NavigationItem {
   href: string;
 }
 
+interface ContactFormData {
+  name: string;
+  email: string;
+  message: string;
+}
+
 const services: Service[] = [
   {
     id: "ai-tools",
@@ -155,6 +161,11 @@ const App: React.FC = () => {
   const [activeSection, setActiveSection] = useState('');
   const [areCardsExpanded, setAreCardsExpanded] = useState(false);
   const [isChatOpen, setIsChatOpen] = useState(false);
+  const [notification, setNotification] = useState<{
+    show: boolean;
+    message: string;
+    type: 'success' | 'error';
+  }>({ show: false, message: '', type: 'success' });
 
   useEffect(() => {
     const handleScroll = () => {
@@ -175,6 +186,15 @@ const App: React.FC = () => {
     window.addEventListener('scroll', handleScroll);
     return () => window.removeEventListener('scroll', handleScroll);
   }, []);
+
+  useEffect(() => {
+    if (notification.show) {
+      const timer = setTimeout(() => {
+        setNotification({ ...notification, show: false });
+      }, 5000);
+      return () => clearTimeout(timer);
+    }
+  }, [notification.show]);
 
   return (
     <BrowserRouter>
@@ -438,6 +458,64 @@ const App: React.FC = () => {
                       whileInView={{ opacity: 1, y: 0 }}
                       viewport={{ once: true }}
                       transition={{ duration: 0.6, delay: 0.2 }}
+                      onSubmit={async (e: React.FormEvent<HTMLFormElement>) => {
+                        console.log('Form submission started');
+                        e.preventDefault();
+                        console.log('Default prevented');
+                        const form = e.currentTarget;
+                        const formData = new FormData(form);
+                        
+                        const contactData: ContactFormData = {
+                          name: formData.get('name') as string,
+                          email: formData.get('email') as string,
+                          message: formData.get('message') as string
+                        };
+                        
+                        console.log('Contact data:', contactData);
+                        
+                        try {
+                          console.log('Sending to backend...');
+                          const response = await fetch('http://localhost:8000/contact', {
+                            method: 'POST',
+                            headers: {
+                              'Content-Type': 'application/x-www-form-urlencoded',
+                            },
+                            body: new URLSearchParams({
+                              name: contactData.name,
+                              email: contactData.email,
+                              message: contactData.message
+                            }).toString()
+                          });
+                          
+                          console.log('Response received:', response);
+                          const data = await response.json();
+                          console.log('Data:', data);
+                          
+                          if (data.status === 'success') {
+                            form.reset();
+                            setNotification({
+                              show: true,
+                              message: 'Thank you for your message! We will get back to you soon.',
+                              type: 'success'
+                            });
+                            console.log('Setting success notification:', notification);
+                          } else {
+                            setNotification({
+                              show: true,
+                              message: 'Sorry, there was an error sending your message. Please try again.',
+                              type: 'error'
+                            });
+                            console.log('Setting error notification:', notification);
+                          }
+                        } catch (error) {
+                          console.error('Error:', error);
+                          setNotification({
+                            show: true,
+                            message: 'Sorry, there was an error sending your message. Please try again.',
+                            type: 'error'
+                          });
+                        }
+                      }}
                     >
                       <div>
                         <label htmlFor="name" className="block text-sm font-medium text-gray-300">
@@ -446,6 +524,7 @@ const App: React.FC = () => {
                         <input
                           type="text"
                           id="name"
+                          name="name"
                           className="mt-1 block w-full rounded-md bg-dark border-gray-600 text-white focus:border-primary focus:ring focus:ring-primary focus:ring-opacity-50 px-4 py-3"
                         />
                       </div>
@@ -456,6 +535,7 @@ const App: React.FC = () => {
                         <input
                           type="email"
                           id="email"
+                          name="email"
                           className="mt-1 block w-full rounded-md bg-dark border-gray-600 text-white focus:border-primary focus:ring focus:ring-primary focus:ring-opacity-50 px-4 py-3"
                         />
                       </div>
@@ -465,6 +545,7 @@ const App: React.FC = () => {
                         </label>
                         <textarea
                           id="message"
+                          name="message"
                           rows={4}
                           className="mt-1 block w-full rounded-md bg-dark border-gray-600 text-white focus:border-primary focus:ring focus:ring-primary focus:ring-opacity-50 px-4 py-3"
                         />
@@ -521,6 +602,28 @@ const App: React.FC = () => {
         </footer>
       </div>
       <ChatWidget isOpen={isChatOpen} setIsOpen={setIsChatOpen} />
+      <AnimatePresence>
+        {notification.show && (
+          <motion.div
+            initial={{ opacity: 0, y: 50 }}
+            animate={{ opacity: 1, y: 0 }}
+            exit={{ opacity: 0, y: 50 }}
+            className={`fixed bottom-4 right-4 p-4 rounded-lg shadow-lg z-50 ${
+              notification.type === 'success' 
+                ? 'bg-green-500' 
+                : 'bg-red-500'
+            } text-white`}
+          >
+            <p>{notification.message}</p>
+            <button
+              onClick={() => setNotification({ ...notification, show: false })}
+              className="absolute top-1 right-1 text-white hover:text-gray-200"
+            >
+              <X className="w-4 h-4" />
+            </button>
+          </motion.div>
+        )}
+      </AnimatePresence>
     </BrowserRouter>
   );
 }

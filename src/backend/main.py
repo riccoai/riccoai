@@ -1,5 +1,5 @@
 # main.py
-from fastapi import FastAPI, WebSocket, WebSocketDisconnect
+from fastapi import FastAPI, WebSocket, WebSocketDisconnect, Form
 import httpx
 from dotenv import load_dotenv
 from fastapi.middleware.cors import CORSMiddleware
@@ -9,6 +9,9 @@ import json
 from typing import List, Dict
 import datetime
 from tiktoken import encoding_for_model
+import smtplib
+from email.mime.text import MIMEText
+from email.mime.multipart import MIMEMultipart
 
 # Langchain imports
 from langchain.schema import HumanMessage, AIMessage
@@ -417,6 +420,39 @@ async def root():
 async def health_check():
     return {"status": "healthy"}
 
+@app.post("/contact")
+async def handle_contact(name: str = Form(), email: str = Form(), message: str = Form()):
+    # Email configuration
+    sender_email = os.getenv("EMAIL_ADDRESS")
+    sender_password = os.getenv("EMAIL_PASSWORD")
+    receiver_email = os.getenv("RECEIVER_EMAIL")
+    
+    # Create message
+    msg = MIMEMultipart()
+    msg['From'] = sender_email
+    msg['To'] = receiver_email
+    msg['Subject'] = f"New Contact Form Submission from {name}"
+    
+    body = f"""
+    New contact form submission from ricco.AI website:
+    
+    Name: {name}
+    Email: {email}
+    Message: {message}
+    """
+    msg.attach(MIMEText(body, 'plain'))
+    
+    # Send email
+    try:
+        with smtplib.SMTP('smtp.gmail.com', 587) as server:
+            server.starttls()
+            server.login(sender_email, sender_password)
+            server.send_message(msg)
+        return {"status": "success", "message": "Form submitted successfully"}
+    except Exception as e:
+        print(f"Error sending email: {str(e)}")
+        return {"status": "error", "message": "Failed to send message"}
+
 # Get the directory containing the current file
 current_dir = os.path.dirname(os.path.abspath(__file__))
 env_path = os.path.join(current_dir, '.env')
@@ -444,3 +480,8 @@ print("First few chars of PINECONE_API_KEY:", os.getenv("PINECONE_API_KEY")[:8] 
 # Make sure the path to .env is correct
 print("Current working directory:", os.getcwd())
 print("Looking for .env file in:", os.path.abspath(".env"))
+
+print("Email configuration:")
+print(f"Sender email exists: {bool(os.getenv('EMAIL_ADDRESS'))}")
+print(f"Password exists: {bool(os.getenv('EMAIL_PASSWORD'))}")
+print(f"Receiver email exists: {bool(os.getenv('RECEIVER_EMAIL'))}")
