@@ -31,7 +31,17 @@ print("PINECONE_API_KEY exists:", bool(os.getenv("PINECONE_API_KEY")))
 print("First few chars of PINECONE_API_KEY:", os.getenv("PINECONE_API_KEY")[:8] if os.getenv("PINECONE_API_KEY") else "None")
 
 # First create the FastAPI app
-app = FastAPI()
+app = FastAPI(
+    title="ricco.AI API",
+    description="""
+    AI Consultancy API for ricco.AI.
+    
+    Features:
+    - WebSocket chat endpoint at /ws/{session_id}
+    - Health check endpoint at /health
+    """,
+    version="1.0.0"
+)
 
 # Add CORS middleware
 app.add_middleware(
@@ -358,6 +368,12 @@ async def load_documents_background():
 
 @app.websocket("/ws/{session_id}")
 async def websocket_endpoint(websocket: WebSocket, session_id: str):
+    """
+    WebSocket endpoint for chat functionality.
+    
+    Parameters:
+    - session_id: Unique identifier for the chat session
+    """
     print(f"New WebSocket connection attempt from session: {session_id}")
     try:
         await websocket.accept()
