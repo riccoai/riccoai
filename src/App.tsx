@@ -13,16 +13,18 @@ import {
   Menu,
   X,
   Glasses,
+  Bot,
 } from 'lucide-react';
 
 import ServiceCard from './components/ServiceCard';
 import MatrixEffect from './components/MatrixEffect';
 import TestimonialCarousel from './components/TestimonialCarousel';
 import BlogCard from './components/BlogCard';
-import NewsletterSignup from './components/NewsletterSignup';
 import PrivacyPolicy from './components/PrivacyPolicy.tsx';
 import ChatWidget from './components/ChatWidget';
 import AnimatedStat from './components/AnimatedStat';
+import Blog from './pages/Blog';
+import NewsletterSignup from './components/NewsletterSignup';
 
 
 interface ServiceDetails {
@@ -41,10 +43,13 @@ interface Service {
 }
 
 interface BlogPost {
-  title: string;
-  excerpt: string;
-  date: string;
-  readTime: string;
+  id: number;
+  attributes: {
+    title: string;
+    excerpt: string;
+    date: string;
+    readTime: string;
+  }
 }
 
 interface NavigationItem {
@@ -127,27 +132,6 @@ const services: Service[] = [
   }
 ];
 
-const blogPosts: BlogPost[] = [
-  {
-    title: "Getting Started with AI: A Beginner's Guide",
-    excerpt: "Learn the basics of AI and how it can transform your business operations...",
-    date: "2024-03-15",
-    readTime: "5 min read"
-  },
-  {
-    title: "Top AI Tools for Business Productivity",
-    excerpt: "Discover the most effective AI tools that can streamline your workflow...",
-    date: "2024-03-10",
-    readTime: "7 min read"
-  },
-  {
-    title: "AI Ethics in Business: What You Need to Know",
-    excerpt: "Understanding the ethical implications of AI implementation...",
-    date: "2024-03-05",
-    readTime: "6 min read"
-  }
-];
-
 const navigation: NavigationItem[] = [
   { name: 'About', href: '#about' },
   { name: 'Services', href: '#services' },
@@ -166,6 +150,7 @@ const App: React.FC = () => {
     message: string;
     type: 'success' | 'error';
   }>({ show: false, message: '', type: 'success' });
+  const [blogPosts, setBlogPosts] = useState<BlogPost[]>([]);
 
   useEffect(() => {
     const handleScroll = () => {
@@ -195,6 +180,21 @@ const App: React.FC = () => {
       return () => clearTimeout(timer);
     }
   }, [notification.show]);
+
+  useEffect(() => {
+    const fetchPosts = async () => {
+      try {
+        const response = await fetch('http://localhost:1337/api/posts?populate=*');
+        const data = await response.json();
+        console.log('Fetched data:', data);
+        setBlogPosts(data.data);
+      } catch (error) {
+        console.error('Error fetching blog posts:', error);
+      }
+    };
+
+    fetchPosts();
+  }, []);
 
   return (
     <BrowserRouter>
@@ -315,14 +315,24 @@ const App: React.FC = () => {
                     <p className="text-xl md:text-2xl text-gray-400 mb-8">
                       Expert AI consulting to enhance your business productivity
                     </p>
-                    <motion.button
-                      onClick={() => setIsChatOpen(true)}
-                      className="inline-block bg-primary hover:bg-primary-dark text-white font-semibold px-8 py-4 rounded-lg transition-colors duration-300 mb-32"
-                      whileHover={{ scale: 1.05 }}
-                      whileTap={{ scale: 0.95 }}
-                    >
-                      Talk to Us
-                    </motion.button>
+                    <div className="flex justify-center gap-4">
+                      <motion.button
+                        onClick={() => setIsChatOpen(true)}
+                        className="inline-block bg-primary hover:bg-primary-dark text-white font-semibold px-8 py-4 rounded-lg transition-colors duration-300 mb-32 flex items-center justify-center gap-2"
+                        whileHover={{ scale: 1.05 }}
+                        whileTap={{ scale: 0.95 }}
+                      >
+                        <Bot size={20} /> Chat with Us
+                      </motion.button>
+                      <motion.a
+                        href="#contact"
+                        className="inline-block bg-blue-500 hover:bg-blue-600 text-white font-semibold px-8 py-4 rounded-lg transition-colors duration-300 mb-32"
+                        whileHover={{ scale: 1.05 }}
+                        whileTap={{ scale: 0.95 }}
+                      >
+                        Meet with Us
+                      </motion.a>
+                    </div>
                   </motion.div>
                 </div>
               </section>
@@ -425,13 +435,24 @@ const App: React.FC = () => {
                   </motion.div>
 
                   <div className="grid md:grid-cols-3 gap-8 mt-12">
-                    {blogPosts.map((post, index) => (
-                      <BlogCard key={index} {...post} />
+                    {blogPosts.slice(0, 3).map((post) => (
+                      <BlogCard 
+                        key={post.id}
+                        title={post.attributes.title}
+                        excerpt={post.attributes.excerpt}
+                        date={post.attributes.publishedAt}
+                        readTime={post.attributes.readTime}
+                      />
                     ))}
                   </div>
 
-                  <div className="mt-16">
-                    <NewsletterSignup />
+                  <div className="text-center mt-12">
+                    <Link 
+                      to="/blog" 
+                      className="inline-block bg-primary hover:bg-primary-dark text-white font-semibold px-8 py-4 rounded-lg transition-colors duration-300"
+                    >
+                      View All Posts
+                    </Link>
                   </div>
                 </div>
               </section>
@@ -459,9 +480,7 @@ const App: React.FC = () => {
                       viewport={{ once: true }}
                       transition={{ duration: 0.6, delay: 0.2 }}
                       onSubmit={async (e: React.FormEvent<HTMLFormElement>) => {
-                        console.log('Form submission started');
                         e.preventDefault();
-                        console.log('Default prevented');
                         const form = e.currentTarget;
                         const formData = new FormData(form);
                         
@@ -471,25 +490,38 @@ const App: React.FC = () => {
                           message: formData.get('message') as string
                         };
                         
-                        console.log('Contact data:', contactData);
+                        if (!contactData.name || !contactData.email || !contactData.message) {
+                          setNotification({
+                            show: true,
+                            message: 'Please fill in all fields',
+                            type: 'error'
+                          });
+                          return;
+                        }
+
+                        if (!contactData.email.match(/^[^\s@]+@[^\s@]+\.[^\s@]+$/)) {
+                          setNotification({
+                            show: true,
+                            message: 'Please enter a valid email address',
+                            type: 'error'
+                          });
+                          return;
+                        }
                         
                         try {
-                          console.log('Sending to backend...');
                           const response = await fetch('http://localhost:8000/contact', {
                             method: 'POST',
                             headers: {
-                              'Content-Type': 'application/x-www-form-urlencoded',
+                              'Content-Type': 'application/json',
                             },
-                            body: new URLSearchParams({
-                              name: contactData.name,
-                              email: contactData.email,
-                              message: contactData.message
-                            }).toString()
+                            body: JSON.stringify(contactData)
                           });
                           
-                          console.log('Response received:', response);
+                          if (!response.ok) {
+                            throw new Error('Network response was not ok');
+                          }
+                          
                           const data = await response.json();
-                          console.log('Data:', data);
                           
                           if (data.status === 'success') {
                             form.reset();
@@ -498,14 +530,8 @@ const App: React.FC = () => {
                               message: 'Thank you for your message! We will get back to you soon.',
                               type: 'success'
                             });
-                            console.log('Setting success notification:', notification);
                           } else {
-                            setNotification({
-                              show: true,
-                              message: 'Sorry, there was an error sending your message. Please try again.',
-                              type: 'error'
-                            });
-                            console.log('Setting error notification:', notification);
+                            throw new Error('Server returned error status');
                           }
                         } catch (error) {
                           console.error('Error:', error);
@@ -564,6 +590,7 @@ const App: React.FC = () => {
               </section>
             </>
           } />
+          <Route path="/blog" element={<Blog />} />
           <Route path="/privacy" element={<PrivacyPolicy />} />
         </Routes>
 

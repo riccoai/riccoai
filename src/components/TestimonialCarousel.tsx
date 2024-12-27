@@ -14,16 +14,16 @@ const testimonials: Testimonial[] = [
   {
     text: "Ricco.AI transformed our business operations. Their AI integration solutions helped us achieve more efficiency in our customer service.",
     author: "Allan Jarata",
-    position: "CEO",
-    company: "VanCrew",
-    logo: "https://raw.githubusercontent.com/riccoai/riccoai/refs/heads/main/images/vancrew1.jpg"
+    position: "Owner",
+    company: "Vancouver Vibe",
+    logo: "https://ricco.ai/images/vanvibe1.png"
   },
   {
     text: "The AI team building service has been a game-changer. We've automated complex processes and seen remarkable improvements in our productivity.",
     author: "Victor Lei",
     position: "Operations Director",
     company: "LearnChat.io",
-    logo: "https://raw.githubusercontent.com/riccoai/riccoai/refs/heads/main/images/learnchatlogo1.jpg"
+    logo: "https://ricco.ai/images/learnchatlogo1.png"
   },
   {
     text: "Their business analytics solutions provided insights that helped us make crucial data-driven decisions.",

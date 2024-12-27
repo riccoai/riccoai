@@ -1,11 +1,12 @@
 // ChatWidget.tsx
-import React, { useState, useEffect, useRef } from 'react';
+import React, { useState, useEffect, useRef, useCallback } from 'react';
 import './ChatWidget.css';
 
 interface Message {
     type: 'user' | 'bot';
     content: string;
     isScheduling?: boolean;
+    isThinking?: boolean;
     url?: string;
     linkText?: string;
 }
@@ -45,7 +46,7 @@ const ChatWidget: React.FC<ChatWidgetProps> = ({ isOpen, setIsOpen }) => {
         setSessionId(Math.random().toString(36).substring(7));
     }, []);
 
-    const connectWebSocket = () => {
+    const connectWebSocket = useCallback(() => {
         if (isConnecting || ws) return;
 
         setIsConnecting(true);
@@ -65,7 +66,7 @@ const ChatWidget: React.FC<ChatWidgetProps> = ({ isOpen, setIsOpen }) => {
                 }]);
             };
 
-            websocket.onmessage = (event) => {
+            websocket.onmessage = (event: MessageEvent) => {
                 console.log("Received message from server:", event.data);
                 setMessages(prev => prev.filter(msg => msg.content !== "thinking"));
                 
@@ -111,9 +112,8 @@ const ChatWidget: React.FC<ChatWidgetProps> = ({ isOpen, setIsOpen }) => {
             console.error("Error creating WebSocket:", error);
             setIsConnecting(false);
         }
-    };
+    }, [isConnecting, ws, sessionId]);
 
-    // Only try to connect once when the chat is opened
     useEffect(() => {
         if (sessionId && isOpen && !ws && !isConnecting) {
             connectWebSocket();
@@ -125,7 +125,7 @@ const ChatWidget: React.FC<ChatWidgetProps> = ({ isOpen, setIsOpen }) => {
                 setWs(null);
             }
         };
-    }, [isOpen, sessionId, ws, isConnecting]);
+    }, [isOpen, sessionId, ws, isConnecting, connectWebSocket]);
 
     const scrollToBottom = () => {
         messagesEndRef.current?.scrollIntoView({ behavior: "smooth" });

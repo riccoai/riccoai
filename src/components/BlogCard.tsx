@@ -4,7 +4,7 @@ import { motion } from 'framer-motion';
 interface BlogCardProps {
   title: string;
   excerpt: string;
-  date: string;
+  date: string;      // We'll convert publishedAt to date when passing props
   readTime: string;
 }
 
